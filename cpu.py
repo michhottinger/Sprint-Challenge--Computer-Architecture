@@ -49,34 +49,33 @@ class CPU:
     """Main CPU class."""
 
     def __init__(self):
-       
         self.ram = [0] * 256
         self.reg = [0] * 8
         self.pc =0
+        self.sp = 7
+        self.reg[7] = 0xf4 #will always point to reg 7 at f4
         self.flags = {}
-        self.branch_table = {
-            0b01000111 : "PRN",
-            0b00000001 : "HLT",
-            0b10000010 : "LDI",
-            0b10100010 : "MUL",
-            0b01000101 : "PUSH",
-            0b01000110 : "POP",
-            0b01010000 : "CALL",
-            0b01010100 : "JMP",
-            0b00010001 : "RET",
-            0b10100000 : "ADD",
-            0b01010110 : "JNE",
-            0b10100111 : "CMP",
-            0b01010101 : "JEQ"
-        }
-        
+        self.table = {}
+        self.table[PRN] = self.prn
+        self.table[HLT] = self.hlt
+        self.table[LDI] = self.ldi
+        self.table[MUL] = self.mul
+        self.table[PUSH] = self.push
+        self.table[POP] = self.pop
+        self.table[CALL] = self.call
+        self.table[JMP] = self.jmp
+        self.table[RET] = self.ret
+        self.table[ADD] = self.add
+        self.table[JNE] = self.jne
+        self.table[CMP] = self.cmp
+        self.table[JEQ] = self.jeq
+           
 
     def load(self):
         """Load a program into memory."""
-
         address = 0
-
         program = []
+        
         with open (sys.argv[1]) as f:
             for line in f:
                 try: 
@@ -86,43 +85,12 @@ class CPU:
                 except ValueError:
                     pass
                 
-                
         for instruction in program:
             self.ram[address] = instruction
             address += 1
 
             #Memory Address Register_ (MAR) and the _Memory Data Register_ (MDR)
-    def ram_read(self, mar):
-        return self.ram[mar]
-
-    def ram_write(self, mar, mdr):
-        self.ram[mar] = mdr
-    
-    def PRN(self, reg):
-        print(self.reg[reg])
-    
-    def LDI(self, reg, value):
-        self.reg[reg] = value
-        
-    def HLT(self):
-        return False
-        
-#     def JEQ(self, reg):
-#         if self.flags['E'] == 1:
-#             self.pc == self.reg[reg]
-#         else:
-#             self.pc += 2
             
-#     def JNE(self, reg):
-#         if self.flags['E'] == 0:
-#             self.pc == self.reg[reg]
-#         else:
-#             self.pc +=2
-            
-#     def JMP(self, reg):
-#         self.pc = self.reg[reg]
-        
-    
     def alu(self, op, reg_a=None, reg_b=None):
         """ALU operations."""
         a = self.reg[reg_a]
@@ -154,6 +122,86 @@ class CPU:
         else:
             raise Exception("Unsupported ALU operation")
 
+    
+    def ram_read(self, mar):
+        return self.ram[mar]
+
+    def ram_write(self, mar, mdr):
+        self.ram[mar] = mdr
+    
+    def prn(self, a=None, b=None):
+        print(self.reg[a])
+    
+    def ldi(self, reg, value):
+        self.reg[reg] = value
+        
+    def hlt(self, a=None, b=None):
+        sys.exit(1)
+        
+    def mul(self, a=None, b=None):
+        self.alu("MUL", a, b)
+        
+    def add(self, a=None, b=None):
+        self.alu("ADD", a, b)
+        
+    def cmp(self, a=None, b=None):
+        self.alu("CMP", a, b)
+        
+    def push(self, a=None, b=None):
+        self.reg[sp] -= 1
+        self.reg[sp] &= 0xff#keeps r7 in the range 00-ff
+        #get register number
+        reg_num = self.ram[self.pc+1]
+        value = self.reg[reg_num]
+        #store in memory
+        address_to_push_to = self.reg[sp]
+        self.ram[address_to_push_to] = value
+        
+    def pop(self, b=None):
+        #get value from RAM
+        address_to_pop_from = self.reg[sp]
+        value = self.ram[address_to_pop_from]
+        #store in the given registery
+        reg_num = self.ram[self.pc + 1]
+        self.reg[reg_num] = value
+        #increment SP
+        self.reg[sp] +=1
+        
+    def call(self, b=None):
+        return_addr = self.pc + 2 #where we RET to
+        #push on the stack
+        self.reg[sp] -=1
+        address_to_push_to = self.reg[sp]
+        self.ram[address_to_push_to] = return_addr
+        #set the PC to the subroutine address
+        reg_num = self.ram[self.pc + 1]
+        subroutine_addr = self.reg[reg_num]
+        self.pc = subroutine_addr
+        
+    def ret(self):
+        #get reutrn address from top of stack
+        address_to_pop_from = self.reg[sp]
+        return_addr = self.ram[address_to_pop_from]
+        self.reg[sp] += 1
+        #set pc to return addr
+        self.pc = return_addr
+                               
+        
+    def jeq(self, a=None, b=None):
+        if self.flags['E'] == 1:
+            self.pc = self.reg[a]
+        else:
+            self.pc += 2
+            
+    def jne(self, a=None, b=None):
+        if self.flags['E'] == 0:
+            self.pc = self.reg[a]
+        else:
+            self.pc +=2
+            
+    def jmp(self, a=None, b=None):
+        self.pc = self.reg[a]
+        
     def trace(self):
         """
         Handy function to print out the CPU state. You might want to call this
@@ -162,7 +210,7 @@ class CPU:
 
         print(f"TRACE: %02X | %02X %02X %02X |" % (
             self.pc,
-            self.flags,
+            #self.flags,
             #self.ie,
             self.ram_read(self.pc),
             self.ram_read(self.pc + 1),
@@ -174,126 +222,35 @@ class CPU:
 
         print()
 
+############################       
+        
     def run(self):
         """Run the CPU."""
-        sp = 7#stack pointer
-        self.reg[sp] = 0xf4 #start one above f3 then decrement
-        running = True
+        #a dict for instr that don't increment like the others
+        manual = [CALL, JNE, RET, JMP, JEQ]
         count = 1
     
-   
-        
-        while running:
+        while True:
             ir = self.ram_read(self.pc) # Instruction Register, contains a copy of the currently executing instruction
-#             print('---------------------')
-#             print(self.pc, ir, self.branch_table.get(ir))
-#             self.trace()
-#             print('---------------------')
-            if ir in self.branch_table:
-                self.branch_table[ir]
-            
-            if ir in self.branch_table and self.branch_table[ir] == "HLT":
-                running = self.HLT()
-                print("halted here")
-               
-          
             operand_a = self.ram_read(self.pc + 1)
             operand_b = self.ram_read(self.pc + 2)
+#             print('---------------------')
+#             print(self.pc, ir, self.table.get(ir))
+#             self.trace()
+#             print('---------------------')
+            if ir == HLT:
+                self.hlt()
+                print("Halted here")
             
-            if ir in self.branch_table and not self.branch_table[ir] == "HLT":
+            elif ir in manual:#this allows us to move manually set the pc
+                self.table[ir](operand_a, operand_b)
+            
+            elif ir in self.table:
+                self.table[ir](operand_a, operand_b)
+                self.pc += (ir >> 6) + 1
                 
-                if self.branch_table[ir] == "LDI":
-                    self.LDI(operand_a, operand_b)
-                    self.pc += 3
-                
-                elif self.branch_table[ir] == "PRN":
-                    self.PRN(operand_a)
-                    self.pc += 2
-                
-                elif self.branch_table[ir] == "PUSH":
-                    #decrement stack pointer
-                    self.reg[sp] -= 1
-    
-                    self.reg[sp] &= 0xff#keeps r7 in the range 00-ff
-    
-                    #get register number
-                    reg_num = self.ram[self.pc+1]
-                    value = self.reg[reg_num]
-    
-                    #store in memory
-                    address_to_push_to = self.reg[sp]
-                    self.ram[address_to_push_to] = value
-                    if (ir & (1<< 7)) >> 7 ==1:
-                        self.pc += 3
-                    else:
-                        self.pc += 2
-     
-                elif self.branch_table[ir] == "POP":
-                    #get value from RAM
-                    address_to_pop_from = self.reg[sp]
-                    value = self.ram[address_to_pop_from]
-        
-                    #store in the given registery
-                    reg_num = self.ram[self.pc + 1]
-                    self.reg[reg_num] = value
-        
-                    #increment SP
-                    self.reg[sp] +=1
-                    #print(self.reg[sp])
-                    if (ir & (1<< 7)) >> 7 ==1:
-                        self.pc += 3
-                    else:
-                        self.pc += 2
-                
-                elif self.branch_table[ir] == "CALL":
-                    return_addr = self.pc + 2 #where we RET to
-                    
-                    #push on the stack
-                    self.reg[sp] -=1
-                    address_to_push_to = self.reg[sp]
-                    self.ram[address_to_push_to] = return_addr
-                    
-                    #set the PC to the subroutine address
-                    reg_num = self.ram[self.pc + 1]
-                    subroutine_addr = self.reg[reg_num]
-                   
-                    self.pc = subroutine_addr
-                    
-                    #print(self.pc) #THIS is getting stopped at 24, HLT
-                    
-                elif self.branch_table[ir] == "RET":
-                     #get reutrn address from top of stack
-                    address_to_pop_from = self.reg[sp]
-                    return_addr = self.ram[address_to_pop_from]
-                    self.reg[sp] += 1
-
-                    #set pc to return addr
-                    self.pc = return_addr
-                               
-                elif self.branch_table[ir] == "JNE":
-#                     print("here")
-                    if self.flags['E'] == 0:
-                        self.pc = self.reg[operand_a]
-                    else:
-                        self.pc +=2
-                
-                elif self.branch_table[ir] == "JMP":
-                    self.pc = self.reg[operand_a]
-                
-                elif self.branch_table[ir] == "JEQ":
-                    if self.flags['E'] == 1:
-                        self.pc = self.reg[operand_a]
-                    else:
-                        self.pc += 2
-                    
-                else: 
-                    op = self.branch_table[ir]
-                    self.alu(op, operand_a, operand_b)
-                    
-                    if (ir & (1<< 7)) >> 7 ==1:
-                        self.pc += 3
-                    else:
-                        self.pc += 2
+            else:
+                print(ir)
                 
             count +=1
                
